@@ -7,8 +7,15 @@ from pydantic import BaseModel
 from typing import Literal, Optional
 import secrets
 
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+USUARIO = os.getenv("USERNAME")
+SENHA = os.getenv("PASSWORD")
 # ---- data base ----
 
 
