@@ -14,8 +14,8 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-USUARIO = os.getenv("USERNAME")
-SENHA = os.getenv("PASSWORD")
+USUARIO = os.getenv("USUARIO")
+SENHA = os.getenv("SENHA")
 # ---- data base ----
 
 
