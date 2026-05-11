@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from fastapi import FastAPI, HTTPException, Depends, status, Query
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
-from typing import Literal, Optional
+from typing import Literal
+import asyncio
 import secrets
 
 import os
@@ -120,7 +121,7 @@ def listar_tarefas(
     }
 
 @app.get("/checklist/{nome}")
-def buscar_tarefa(
+async def buscar_tarefa(
     nome: str, 
     db: Session = Depends(sessao_DB),
     usuario: str = Depends(autenticar)
@@ -131,7 +132,7 @@ def buscar_tarefa(
     return tarefa
 
 @app.post("/checklist")
-def adicionar_tarefa(
+async def adicionar_tarefa(
     tarefa: Tarefa, 
     db: Session = Depends(sessao_DB),
     usuario: str = Depends(autenticar)
@@ -148,7 +149,7 @@ def adicionar_tarefa(
 
 
 @app.put("/checklist/{nome}")
-def atualizar_tarefa(
+async def atualizar_tarefa(
     nome: str, 
     dados: TarefaUpdate,
     db: Session = Depends(sessao_DB),
@@ -171,7 +172,7 @@ def atualizar_tarefa(
     
 
 @app.delete("/checklist/{nome}")
-def remover_tarefa(
+async def remover_tarefa(
     nome: str, 
     db: Session = Depends(sessao_DB),
     usuario: str = Depends(autenticar)
