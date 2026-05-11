@@ -11,8 +11,8 @@ services:
 
     environment:
       DATABASE_URL: sqlite:///./tasks.db
-      USERNAME: "admin"
-      PASSWORD: "admin1234"
+      USUARIO: "admin"
+      SENHA: "admin1234"
 
     restart: unless-stopped
 
