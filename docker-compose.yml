@@ -8,7 +8,11 @@ services:
 
     volumes:
       - .:/app
-
+    redis:
+      image: redis:latest
+      ports:
+        - "6379:6379"
+  
     environment:
       DATABASE_URL: sqlite:///./tasks.db
       USUARIO: "admin"

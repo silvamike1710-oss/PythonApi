@@ -5,9 +5,10 @@ from fastapi import FastAPI, HTTPException, Depends, status, Query
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from typing import Literal
-import asyncio
 import secrets
-
+import redis.asyncio as redis
+import json
+import asyncio
 import os
 from dotenv import load_dotenv
 
@@ -29,6 +30,12 @@ Base = declarative_base()
 
 app = FastAPI()
 security = HTTPBasic()
+redis_client = redis.Redis(
+    host="localhost",
+    port=6379,
+    decode_responses=True
+)
+
 
 
 # --- database model ---
@@ -75,6 +82,17 @@ def autenticar(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
+#--- cache save function ----
+async def salvar_tarefas_redis(cache_key, tarefas):
+    await redis_client.set(
+        cache_key,
+        json.dumps(tarefas),
+        ex=60
+    )
+#---- delete cache ---
+async def deletar_tarefas_redis(cache_key):
+    await redis_client.delete(cache_key)
+
 # --- routes ---
 
 @app.get("/public")
@@ -87,7 +105,7 @@ def privateRoute(usuario: str = Depends(autenticar)):
 
 
 @app.get("/checklist")
-def listar_tarefas(
+async def listar_tarefas(
     db: Session = Depends(sessao_DB),
     usuario: str = Depends(autenticar),
     sort_by: Literal["nome", "descricao", "concluida"] = Query("nome"),
@@ -95,7 +113,12 @@ def listar_tarefas(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100)
 ):
-    
+    cache_key = "checklist"
+    cache = await redis_client.get(cache_key)
+
+    if cache:
+        print("Redis cache hit")
+        return json.loads(cache)
     # fetch all and then sort it on python
 
     everything = db.query(TarefaDB).all()
@@ -112,13 +135,24 @@ def listar_tarefas(
     start = (page - 1) * size
     pagina = everything[start : start + size]
 
-    return {
+    resultado = {
         "page": page,
         "size": size,
         "total": total,
         "total_pages": (total + size - 1) // size,
-        "data": pagina,
+        "data": [
+    {
+        "id": t.id,
+        "nome": t.nome,
+        "descricao": t.descricao,
+        "concluida": t.concluida
     }
+    for t in pagina
+]
+    }
+    await salvar_tarefas_redis(cache_key, resultado)
+
+    return resultado
 
 @app.get("/checklist/{nome}")
 async def buscar_tarefa(
@@ -145,6 +179,9 @@ async def adicionar_tarefa(
     db.add(nova)
     db.commit()
     db.refresh(nova)
+
+    await deletar_tarefas_redis("checklist")
+
     return {"message": "tarefa adicionada", "tarefa": nova}
 
 
@@ -168,6 +205,9 @@ async def atualizar_tarefa(
     
     db.commit()
     db.refresh(tarefa)
+
+    await deletar_tarefas_redis("checklist")
+
     return tarefa
     
 
@@ -183,4 +223,6 @@ async def remover_tarefa(
     
     db.delete(tarefa)
     db.commit()
+    await deletar_tarefas_redis("checklist")
+
     return {"message": f"removido: {tarefa.nome}"}
