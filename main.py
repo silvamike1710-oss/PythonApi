@@ -10,6 +10,7 @@ import redis.asyncio as redis
 import json
 import asyncio
 import os
+from celery_app import calcular_soma, calcular_fatorial
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -226,3 +227,35 @@ async def remover_tarefa(
     await deletar_tarefas_redis("checklist")
 
     return {"message": f"removido: {tarefa.nome}"}
+
+class SomaRequest(BaseModel):
+    a: int
+    b: int
+
+class FatorialRequest(BaseModel):
+    numero: int
+
+@app.post("/soma")
+async def soma(dados: SomaRequest):
+
+    task = calcular_soma.delay(
+        dados.a,
+        dados.b
+    )
+
+    return {
+        "task_id": task.id,
+        "status": "processing"
+    }
+
+@app.post("/fatorial")
+async def fatorial(dados: FatorialRequest):
+
+    task = calcular_fatorial.delay(
+        dados.numero
+    )
+
+    return {
+        "task_id": task.id,
+        "status": "processing"
+    }
