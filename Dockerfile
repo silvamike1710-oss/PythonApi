@@ -2,14 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-
 RUN pip install --no-cache-dir poetry
 
+COPY pyproject.toml ./
 
-COPY pyproject.toml poetry.lock ./
-
+# Generate the lockfile on the fly, then install all dependencies
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi
+    && poetry lock \
+    && poetry install --no-root --no-interaction --no-ansi
 
 COPY . .
 

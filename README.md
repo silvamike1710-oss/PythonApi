@@ -1,184 +1,326 @@
-Checklist API ✅
+# TaskFlow API — FastAPI + Redis + Celery + Kafka
 
-A task management REST API built with FastAPI, SQLAlchemy, and SQLite.
+REST API built with FastAPI for task management, using:
 
-This project allows authenticated users to create, list, update, search, and delete tasks, with support for:
+* SQLAlchemy for database persistence
+* Redis for caching and message brokering
+* Celery for background processing
+* Apache Kafka for local messaging infrastructure
+* [Podman](https://podman.io?utm_source=chatgpt.com) for containers
 
-Basic HTTP Authentication
-Persistent database storage
-Sorting
-Pagination
-Duplicate validation
-Containerization with Docker
-Features
-Authentication
+---
 
-Protected routes use HTTP Basic Authentication.
+# Features
 
-Default credentials:
+## Task Management
 
-Username: admin
-Password: 1234
-Task Management
+* Create tasks
+* List tasks
+* Search by name
+* Update tasks
+* Delete tasks
 
-The API supports:
+## Authentication
 
-Create tasks
-List tasks
-Search tasks by name
-Update tasks
-Delete tasks
-Sorting and Pagination
+* HTTP Basic Authentication
 
-Task listing supports:
+## Filtering
 
-Sorting by name
-Sorting by description
-Sorting by completion status
-Ascending/descending order
-Pagination
+* Sorting by:
 
-Example:
+  * `nome`
+  * `descricao`
+  * `concluida`
 
-GET /checklist?sort_by=nome&order=asc&page=1&size=10
-Technologies Used
-Python 3.12
-FastAPI
-SQLAlchemy
-Pydantic
-SQLite
-Docker
-Poetry
-Project Structure
+* Pagination:
+
+  * page
+  * size
+
+## Redis Cache
+
+* Cached checklist responses
+* TTL expiration
+* Automatic cache invalidation on create/update/delete
+
+## Celery Background Tasks
+
+Available async tasks:
+
+* `calcular_soma`
+* `calcular_fatorial`
+
+## Kafka Environment
+
+Local Kafka stack with:
+
+* ZooKeeper
+* Kafka Broker
+* Kafka UI
+
+---
+
+# Project Structure
+
+```text
 .
 ├── main.py
-├── Dockerfile
+├── celery_app.py
 ├── docker-compose.yml
-├── pyproject.toml
-├── poetry.lock
-├── tasks.db
+├── .env
+├── requirements.txt
 └── README.md
-Installation
+```
 
-Clone the repository:
+---
 
-git clone <https://github.com/silvamike1710-oss/PythonApi.git>
-cd project-folder
+# Requirements
 
-Install dependencies with Poetry:
+* Python 3.11+
+* Podman
+* Redis
 
-poetry install
+---
 
-Run locally:
+# Installation
 
-poetry run uvicorn main:app --reload
+## 1. Clone the repository
 
-API documentation:
+```bash
+git clone <repository_url>
+cd <project_name>
+```
 
-http://localhost:8000/docs
-Running with Docker
+---
 
-Build containers:
+## 2. Create virtual environment
 
-docker compose build
+### Windows
 
-Start application:
+```bash
+python -m venv venv
+```
 
-docker compose up
+Activate:
 
-Or in detached mode:
+```bash
+source venv/Scripts/activate
+```
 
-docker compose up -d
+---
 
-Stop containers:
+### Linux/macOS
 
-docker compose down
-API Endpoints
-Public Route
-GET /public
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
 
-Returns a public message.
+---
 
-Example response:
+## 3. Install dependencies
 
-{
-  "message": "this is public"
-}
-Private Route
-GET /private
+```bash
+pip install fastapi uvicorn sqlalchemy python-dotenv redis celery
+```
+
+---
+
+# Environment Variables
+
+Create `.env`
+
+```env
+DATABASE_URL=sqlite:///./tasks.db
+
+USUARIO=admin
+SENHA=1234
+```
+
+---
+
+# Running Redis
+
+Start Redis with Podman:
+
+```bash
+podman run -d --name redis -p 6379:6379 redis:latest
+```
+
+---
+
+# Running the API
+
+```bash
+uvicorn main:app --reload
+```
+
+API docs:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+---
+
+# Running Celery
+
+Windows:
+
+```bash
+celery -A celery_app worker -l info --pool=solo
+```
+
+Linux/macOS:
+
+```bash
+celery -A celery_app worker -l info
+```
+
+---
+
+# Running Kafka Stack
+
+```bash
+podman compose up -d
+```
+
+Kafka UI:
+
+```text
+http://localhost:8080
+```
+
+---
+
+# API Endpoints
+
+## Public
+
+### GET `/public`
+
+Returns public message.
+
+---
+
+## Private
+
+### GET `/private`
 
 Requires authentication.
 
-Example response:
+---
 
-{
-  "message": "Welcome admin, youre authenticated"
-}
-List Tasks
-GET /checklist
+## Tasks
 
-Query parameters:
+### GET `/checklist`
 
-Parameter	Description
-sort_by	nome, descricao, concluida
-order	asc, desc
-page	page number
-size	items per page
+Returns paginated tasks.
+
+Query params:
+
+* `sort_by`
+* `order`
+* `page`
+* `size`
+
+---
+
+### GET `/checklist/{nome}`
+
+Search task by name.
+
+---
+
+### POST `/checklist`
+
+Create task.
 
 Example:
 
-GET /checklist?sort_by=nome&order=asc&page=1&size=10
-Search Task
-GET /checklist/{nome}
-
-Example:
-
-GET /checklist/study
-Create Task
-POST /checklist
-
-Example body:
-
+```json
 {
-  "nome": "Study Docker",
-  "descricao": "Learn containers",
+  "nome": "Study",
+  "descricao": "Backend practice",
   "concluida": false
 }
-Update Task
-PUT /checklist/{nome}
+```
 
-Example body:
+---
 
-{
-  "nome": "Study Docker",
-  "descricao": "Learn Docker and Compose",
-  "concluida": true
-}
-Delete Task
-DELETE /checklist/{nome}
+### PUT `/checklist/{nome}`
+
+Update task.
+
+---
+
+### DELETE `/checklist/{nome}`
+
+Delete task.
+
+---
+
+# Celery Endpoints
+
+## POST `/soma`
 
 Example:
 
-DELETE /checklist/study
-Database
+```json
+{
+  "a": 10,
+  "b": 20
+}
+```
 
-This project uses SQLite for persistence.
+---
 
-Database file:
+## POST `/fatorial`
 
-tasks.db
-Future Improvements
+Example:
 
-Possible next improvements:
+```json
+{
+  "numero": 5
+}
+```
 
-Password hashing
-JWT authentication
-Environment variables
-PostgreSQL integration
-Automated tests
-CI/CD pipeline
-Database migrations with Alembic
-Author
+---
+
+# Cache Behavior
+
+First request:
+
+```text
+Database → Redis → Response
+```
+
+Subsequent requests:
+
+```text
+Redis → Response
+```
+
+After POST/PUT/DELETE:
+
+```text
+Cache invalidated
+```
+
+---
+
+# Development Notes
+
+On Windows, Celery may require:
+
+```bash
+--pool=solo
+```
+
+due to multiprocessing compatibility.
+
+---
+
+# Author
 
 Michael
-Python Fullstack Developer in training.
