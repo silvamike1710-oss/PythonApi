@@ -1,10 +1,7 @@
-from sqlalchemy import Boolean, create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
 from fastapi import FastAPI, HTTPException, Depends, status, Query
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, Optional
 import secrets
 import redis.asyncio as redis
 import json
@@ -15,66 +12,42 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
 USUARIO = os.getenv("USUARIO")
 SENHA = os.getenv("SENHA")
-# ---- data base ----
 
-
-
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# --- app and security --
+# --- app and security ---
 
 app = FastAPI()
 security = HTTPBasic()
 redis_client = redis.Redis(
-    host="localhost",
+    host=os.getenv("REDIS_HOST", "localhost"),
     port=6379,
     decode_responses=True
 )
 
+# --- in-memory storage ---
 
+livros: dict[int, dict] = {}
+proximo_id: int = 1
 
-# --- database model ---
+# --- pydantic models ---
 
-class TarefaDB(Base):
-    __tablename__ = "tasks"
-    id = Column(Integer, primary_key=True, index=True)
-    nome = Column(String, index=True)
-    descricao = Column(String, index=True)
-    concluida = Column(Boolean, default=False)
+class Livro(BaseModel):
+    titulo: str
+    autor: str
+    ano: int
 
-Base.metadata.create_all(bind=engine)
+class LivroUpdate(BaseModel):
+    titulo: Optional[str] = None
+    autor: Optional[str] = None
+    ano: Optional[int] = None
 
-# --- pydantic things ---
-
-class Tarefa(BaseModel):
-    nome: str
-    descricao: str
-    concluida: bool
-
-class TarefaUpdate(BaseModel):
-    nome: str
-    descricao: str
-    concluida: bool = False
-
-# ---- dependencies ---
-
-def sessao_DB():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# --- dependencies ---
 
 def autenticar(credentials: HTTPBasicCredentials = Depends(security)):
     usuario = credentials.username == USUARIO
     senha = secrets.compare_digest(credentials.password, SENHA)
-    
+
     if not (usuario and senha):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,150 +56,125 @@ def autenticar(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-#--- cache save function ----
-async def salvar_tarefas_redis(cache_key, tarefas):
-    await redis_client.set(
-        cache_key,
-        json.dumps(tarefas),
-        ex=60
-    )
-#---- delete cache ---
-async def deletar_tarefas_redis(cache_key):
+# --- cache helpers ---
+
+async def salvar_livros_redis(cache_key, dados):
+    await redis_client.set(cache_key, json.dumps(dados), ex=60)
+
+async def deletar_livros_redis(cache_key):
     await redis_client.delete(cache_key)
 
 # --- routes ---
 
 @app.get("/public")
-def publicRoute():
+async def public_route():
+    await asyncio.sleep(0)
     return {"message": "this is public"}
 
 @app.get("/private")
-def privateRoute(usuario: str = Depends(autenticar)):
+async def private_route(usuario: str = Depends(autenticar)):
+    await asyncio.sleep(0)
     return {"message": f"Welcome {usuario}, youre authenticated"}
 
 
-@app.get("/checklist")
-async def listar_tarefas(
-    db: Session = Depends(sessao_DB),
+@app.get("/livros")
+async def listar_livros(
     usuario: str = Depends(autenticar),
-    sort_by: Literal["nome", "descricao", "concluida"] = Query("nome"),
+    sort_by: Literal["titulo", "autor", "ano"] = Query("titulo"),
     order: Literal["asc", "desc"] = Query("asc"),
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100)
 ):
-    cache_key = "checklist"
+    cache_key = "livros"
     cache = await redis_client.get(cache_key)
 
     if cache:
         print("Redis cache hit")
         return json.loads(cache)
-    # fetch all and then sort it on python
 
-    everything = db.query(TarefaDB).all()
+    todos = list(livros.values())
 
     reverse = order == "desc"
-    if sort_by == "nome":
-        everything = sorted(everything, key=lambda t: t.nome.lower(), reverse=reverse)
-    elif sort_by == "descricao":
-        everything = sorted(everything, key=lambda t: t.descricao.lower(), reverse=reverse)
-    elif sort_by == "concluida":
-        everything = sorted(everything, key=lambda t: t.concluida, reverse=reverse)
+    if sort_by == "titulo":
+        todos = sorted(todos, key=lambda l: l["titulo"].lower(), reverse=reverse)
+    elif sort_by == "autor":
+        todos = sorted(todos, key=lambda l: l["autor"].lower(), reverse=reverse)
+    elif sort_by == "ano":
+        todos = sorted(todos, key=lambda l: l["ano"], reverse=reverse)
 
-    total = len(everything)
+    total = len(todos)
     start = (page - 1) * size
-    pagina = everything[start : start + size]
+    pagina = todos[start: start + size]
 
     resultado = {
         "page": page,
         "size": size,
         "total": total,
         "total_pages": (total + size - 1) // size,
-        "data": [
-    {
-        "id": t.id,
-        "nome": t.nome,
-        "descricao": t.descricao,
-        "concluida": t.concluida
+        "data": pagina
     }
-    for t in pagina
-]
-    }
-    await salvar_tarefas_redis(cache_key, resultado)
 
+    await salvar_livros_redis(cache_key, resultado)
     return resultado
 
-@app.get("/checklist/{nome}")
-async def buscar_tarefa(
-    nome: str, 
-    db: Session = Depends(sessao_DB),
-    usuario: str = Depends(autenticar)
-):  
-    tarefa = db.query(TarefaDB).filter(TarefaDB.nome.ilike(nome)).first()
-    if not tarefa:
-        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
-    return tarefa
 
-@app.post("/checklist")
-async def adicionar_tarefa(
-    tarefa: Tarefa, 
-    db: Session = Depends(sessao_DB),
-    usuario: str = Depends(autenticar)
-): 
-    existente = db.query(TarefaDB).filter(TarefaDB.nome.ilike(tarefa.nome)).first()
-    if existente:
-        raise HTTPException(status_code=400, detail="tarefa ja existe")
-    
-    nova = TarefaDB(nome=tarefa.nome, descricao=tarefa.descricao, concluida=tarefa.concluida)
-    db.add(nova)
-    db.commit()
-    db.refresh(nova)
+@app.get("/livros/{id}")
+async def buscar_livro(id: int, usuario: str = Depends(autenticar)):
+    await asyncio.sleep(0)
 
-    await deletar_tarefas_redis("checklist")
-
-    return {"message": "tarefa adicionada", "tarefa": nova}
+    if id not in livros:
+        raise HTTPException(status_code=404, detail="Livro não encontrado")
+    return livros[id]
 
 
-@app.put("/checklist/{nome}")
-async def atualizar_tarefa(
-    nome: str, 
-    dados: TarefaUpdate,
-    db: Session = Depends(sessao_DB),
-    usuario: str = Depends(autenticar)
-):  
-    tarefa = db.query(TarefaDB).filter(TarefaDB.nome.ilike(nome)).first()
-    if not tarefa:
-        raise HTTPException(status_code=404, detail="tarefa nao encontrada")
-    
-    if dados.nome is not None:
-        tarefa.nome = dados.nome
-    if dados.descricao is not None:
-        tarefa.descricao = dados.descricao
-    if dados.concluida is not None:
-        tarefa.concluida = dados.concluida
-    
-    db.commit()
-    db.refresh(tarefa)
+@app.post("/livros", status_code=201)
+async def adicionar_livro(livro: Livro, usuario: str = Depends(autenticar)):
+    global proximo_id
 
-    await deletar_tarefas_redis("checklist")
+    await deletar_livros_redis("livros")
 
-    return tarefa
-    
+    novo = {
+        "id": proximo_id,
+        "titulo": livro.titulo,
+        "autor": livro.autor,
+        "ano": livro.ano,
+    }
+    livros[proximo_id] = novo
+    proximo_id += 1
 
-@app.delete("/checklist/{nome}")
-async def remover_tarefa(
-    nome: str, 
-    db: Session = Depends(sessao_DB),
-    usuario: str = Depends(autenticar)
-):  
-    tarefa = db.query(TarefaDB).filter(TarefaDB.nome.ilike(nome)).first()
-    if not tarefa:
-        raise HTTPException(status_code=404, detail="tarefa nao encontrada")
-    
-    db.delete(tarefa)
-    db.commit()
-    await deletar_tarefas_redis("checklist")
+    return {"message": "Livro adicionado com sucesso", "livro": novo}
 
-    return {"message": f"removido: {tarefa.nome}"}
+
+@app.put("/livros/{id}")
+async def atualizar_livro(id: int, dados: LivroUpdate, usuario: str = Depends(autenticar)):
+    if id not in livros:
+        raise HTTPException(status_code=404, detail="Livro não encontrado")
+
+    livro = livros[id]
+    if dados.titulo is not None:
+        livro["titulo"] = dados.titulo
+    if dados.autor is not None:
+        livro["autor"] = dados.autor
+    if dados.ano is not None:
+        livro["ano"] = dados.ano
+
+    await deletar_livros_redis("livros")
+
+    return {"message": "Livro atualizado com sucesso", "livro": livro}
+
+
+@app.delete("/livros/{id}")
+async def remover_livro(id: int, usuario: str = Depends(autenticar)):
+    if id not in livros:
+        raise HTTPException(status_code=404, detail="Livro não encontrado")
+
+    removido = livros.pop(id)
+    await deletar_livros_redis("livros")
+
+    return {"message": f"Livro '{removido['titulo']}' removido com sucesso"}
+
+
+# --- celery routes ---
 
 class SomaRequest(BaseModel):
     a: int
@@ -237,25 +185,12 @@ class FatorialRequest(BaseModel):
 
 @app.post("/soma")
 async def soma(dados: SomaRequest):
-
-    task = calcular_soma.delay(
-        dados.a,
-        dados.b
-    )
-
-    return {
-        "task_id": task.id,
-        "status": "processing"
-    }
+    await asyncio.sleep(0)
+    task = calcular_soma.delay(dados.a, dados.b)
+    return {"task_id": task.id, "status": "processing"}
 
 @app.post("/fatorial")
 async def fatorial(dados: FatorialRequest):
-
-    task = calcular_fatorial.delay(
-        dados.numero
-    )
-
-    return {
-        "task_id": task.id,
-        "status": "processing"
-    }
+    await asyncio.sleep(0)
+    task = calcular_fatorial.delay(dados.numero)
+    return {"task_id": task.id, "status": "processing"}

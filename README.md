@@ -1,326 +1,140 @@
-# TaskFlow API — FastAPI + Redis + Celery + Kafka
+# Livros API
 
-REST API built with FastAPI for task management, using:
+API assíncrona para gerenciamento de livros, construída com FastAPI, Redis (cache) e Celery (tarefas assíncronas).
 
-* SQLAlchemy for database persistence
-* Redis for caching and message brokering
-* Celery for background processing
-* Apache Kafka for local messaging infrastructure
-* [Podman](https://podman.io?utm_source=chatgpt.com) for containers
+## Tecnologias
 
----
-
-# Features
-
-## Task Management
-
-* Create tasks
-* List tasks
-* Search by name
-* Update tasks
-* Delete tasks
-
-## Authentication
-
-* HTTP Basic Authentication
-
-## Filtering
-
-* Sorting by:
-
-  * `nome`
-  * `descricao`
-  * `concluida`
-
-* Pagination:
-
-  * page
-  * size
-
-## Redis Cache
-
-* Cached checklist responses
-* TTL expiration
-* Automatic cache invalidation on create/update/delete
-
-## Celery Background Tasks
-
-Available async tasks:
-
-* `calcular_soma`
-* `calcular_fatorial`
-
-## Kafka Environment
-
-Local Kafka stack with:
-
-* ZooKeeper
-* Kafka Broker
-* Kafka UI
+- **FastAPI** — framework web assíncrono
+- **Redis** — cache de listagem de livros
+- **Celery** — processamento de tarefas em background
+- **Kafka** — infraestrutura de mensageria (disponível via Docker)
 
 ---
 
-# Project Structure
-
-```text
-.
-├── main.py
-├── celery_app.py
-├── docker-compose.yml
-├── .env
-├── requirements.txt
-└── README.md
-```
-
----
-
-# Requirements
-
-* Python 3.11+
-* Podman
-* Redis
-
----
-
-# Installation
-
-## 1. Clone the repository
+## Subindo o ambiente
 
 ```bash
-git clone <repository_url>
-cd <project_name>
+docker compose up --build
 ```
+
+Serviços disponíveis:
+| Serviço     | Endereço                  |
+|-------------|---------------------------|
+| API         | http://localhost:8000     |
+| Kafka UI    | http://localhost:8080     |
+| Redis       | localhost:6379            |
 
 ---
 
-## 2. Create virtual environment
+## Autenticação
 
-### Windows
+Todos os endpoints privados usam HTTP Basic Auth.
 
+- **Usuário:** `admin`
+- **Senha:** `admin1234`
+
+Adicione `-u admin:admin1234` em todos os comandos curl abaixo.
+
+---
+
+## Endpoints — Exemplos com curl
+
+### GET /public — rota pública
 ```bash
-python -m venv venv
+curl http://localhost:8000/public
 ```
 
-Activate:
-
+### GET /private — rota autenticada
 ```bash
-source venv/Scripts/activate
+curl -u admin:admin1234 http://localhost:8000/private
 ```
 
----
-
-### Linux/macOS
-
+### GET /livros — listar livros (com paginação e ordenação)
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+curl -u admin:admin1234 http://localhost:8000/livros
+
+# Com parâmetros opcionais
+curl -u admin:admin1234 "http://localhost:8000/livros?sort_by=ano&order=desc&page=1&size=5"
 ```
 
----
-
-## 3. Install dependencies
-
+### GET /livros/{id} — buscar livro por ID
 ```bash
-pip install fastapi uvicorn sqlalchemy python-dotenv redis celery
+curl -u admin:admin1234 http://localhost:8000/livros/1
 ```
 
----
-
-# Environment Variables
-
-Create `.env`
-
-```env
-DATABASE_URL=sqlite:///./tasks.db
-
-USUARIO=admin
-SENHA=1234
-```
-
----
-
-# Running Redis
-
-Start Redis with Podman:
-
+### POST /livros — adicionar livro
 ```bash
-podman run -d --name redis -p 6379:6379 redis:latest
+curl -u admin:admin1234 -X POST http://localhost:8000/livros \
+  -H "Content-Type: application/json" \
+  -d '{"titulo": "1984", "autor": "George Orwell", "ano": 1949}'
 ```
 
----
-
-# Running the API
-
+### PUT /livros/{id} — atualizar livro
 ```bash
-uvicorn main:app --reload
+curl -u admin:admin1234 -X PUT http://localhost:8000/livros/1 \
+  -H "Content-Type: application/json" \
+  -d '{"titulo": "Nineteen Eighty-Four", "autor": "George Orwell", "ano": 1949}'
 ```
 
-API docs:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
----
-
-# Running Celery
-
-Windows:
-
+### DELETE /livros/{id} — remover livro
 ```bash
-celery -A celery_app worker -l info --pool=solo
+curl -u admin:admin1234 -X DELETE http://localhost:8000/livros/1
 ```
 
-Linux/macOS:
+---
 
+## Tarefas Celery
+
+### POST /soma — soma assíncrona
 ```bash
-celery -A celery_app worker -l info
+curl -X POST http://localhost:8000/soma \
+  -H "Content-Type: application/json" \
+  -d '{"a": 10, "b": 32}'
 ```
 
----
-
-# Running Kafka Stack
-
+### POST /fatorial — fatorial assíncrono
 ```bash
-podman compose up -d
-```
-
-Kafka UI:
-
-```text
-http://localhost:8080
+curl -X POST http://localhost:8000/fatorial \
+  -H "Content-Type: application/json" \
+  -d '{"numero": 7}'
 ```
 
 ---
 
-# API Endpoints
+## Verificando o cache no Redis
 
-## Public
-
-### GET `/public`
-
-Returns public message.
-
----
-
-## Private
-
-### GET `/private`
-
-Requires authentication.
-
----
-
-## Tasks
-
-### GET `/checklist`
-
-Returns paginated tasks.
-
-Query params:
-
-* `sort_by`
-* `order`
-* `page`
-* `size`
-
----
-
-### GET `/checklist/{nome}`
-
-Search task by name.
-
----
-
-### POST `/checklist`
-
-Create task.
-
-Example:
-
-```json
-{
-  "nome": "Study",
-  "descricao": "Backend practice",
-  "concluida": false
-}
-```
-
----
-
-### PUT `/checklist/{nome}`
-
-Update task.
-
----
-
-### DELETE `/checklist/{nome}`
-
-Delete task.
-
----
-
-# Celery Endpoints
-
-## POST `/soma`
-
-Example:
-
-```json
-{
-  "a": 10,
-  "b": 20
-}
-```
-
----
-
-## POST `/fatorial`
-
-Example:
-
-```json
-{
-  "numero": 5
-}
-```
-
----
-
-# Cache Behavior
-
-First request:
-
-```text
-Database → Redis → Response
-```
-
-Subsequent requests:
-
-```text
-Redis → Response
-```
-
-After POST/PUT/DELETE:
-
-```text
-Cache invalidated
-```
-
----
-
-# Development Notes
-
-On Windows, Celery may require:
-
+Acesse o container do Redis:
 ```bash
---pool=solo
+docker exec -it redis redis-cli
 ```
 
-due to multiprocessing compatibility.
+Comandos úteis dentro do redis-cli:
+```bash
+# Listar todas as chaves armazenadas
+KEYS *
+
+# Ver o conteúdo do cache de livros
+GET livros
+
+# Ver o tempo de expiração restante (em segundos)
+TTL livros
+
+# Remover o cache manualmente
+DEL livros
+```
 
 ---
 
-# Author
+## Cenários de erro
 
-Michael
+### Livro não encontrado (404)
+```bash
+curl -u admin:admin1234 http://localhost:8000/livros/999
+# {"detail": "Livro não encontrado"}
+```
+
+### Credenciais inválidas (401)
+```bash
+curl -u admin:errada http://localhost:8000/livros
+# {"detail": "usuario ou senha invalido"}
+```

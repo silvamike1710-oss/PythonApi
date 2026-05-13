@@ -39,16 +39,18 @@ services:
 
   redis:
     image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
 
   api:
     build: .
-    container_name: checklist-api
+    container_name: livros-api
     ports:
       - "8000:8000"
     volumes:
       - .:/app
     environment:
-      DATABASE_URL: sqlite:///./tasks.db
       USUARIO: "admin"
       SENHA: "admin1234"
       REDIS_HOST: "redis"
@@ -56,3 +58,15 @@ services:
       - redis
     restart: unless-stopped
     command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+  celery_worker:
+    build: .
+    container_name: celery-worker
+    volumes:
+      - .:/app
+    environment:
+      REDIS_HOST: "redis"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    command: celery -A celery_app worker --loglevel=info
