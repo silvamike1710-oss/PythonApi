@@ -7,7 +7,8 @@ import redis.asyncio as redis
 import json
 import asyncio
 import os
-from celery_app import calcular_soma, calcular_fatorial
+from celery_app import calcular_soma, calcular_fatorial, app as celery_app
+from celery.result import AsyncResult
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -194,3 +195,32 @@ async def fatorial(dados: FatorialRequest):
     await asyncio.sleep(0)
     task = calcular_fatorial.delay(dados.numero)
     return {"task_id": task.id, "status": "processing"}
+
+
+@app.get("/tasks/{task_id}")
+async def consultar_tarefa(task_id: str):
+    """
+    Consulta o status e o resultado de uma tarefa Celery pelo task_id.
+
+    Possíveis status retornados pelo Celery:
+    - PENDING: tarefa ainda não foi processada (ou task_id não existe)
+    - STARTED: tarefa está sendo processada pelo worker
+    - SUCCESS: tarefa concluída com sucesso (campo 'resultado' terá o valor)
+    - FAILURE: tarefa falhou (campo 'erro' terá a mensagem)
+    - RETRY: tarefa está sendo reprocessada após uma falha
+    """
+    await asyncio.sleep(0)
+
+    task_result = AsyncResult(task_id, app=celery_app)
+
+    resposta = {
+        "task_id": task_id,
+        "status": task_result.status,
+    }
+
+    if task_result.status == "SUCCESS":
+        resposta["resultado"] = task_result.result
+    elif task_result.status == "FAILURE":
+        resposta["erro"] = str(task_result.result)
+
+    return resposta
